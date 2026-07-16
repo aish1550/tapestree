@@ -63,22 +63,27 @@ export default function Inspector({ person, onClose }: InspectorProps) {
       </Box>
 
       {/* Hero profile section */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', px: 3, pb: 3, pt: 1 }}>
-        <Avatar
-          src={person.photoUrl}
-          alt={person.name}
-          sx={{ width: 100, height: 100, mb: 2, boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}
-        />
-        <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, textAlign: 'center' }}>
-          {person.name}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          b. {person.birthDate.split(',')[1]?.trim() || '1985'} – Present
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Born in {person.birthPlace}
-        </Typography>
-      </Box>
+      {(() => {
+        const fullName = `${person.firstName} ${person.lastName || ''}`;
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', px: 3, pb: 3, pt: 1 }}>
+            <Avatar
+              src={person.photoUrl || undefined}
+              alt={fullName}
+              sx={{ width: 100, height: 100, mb: 2, boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}
+            />
+            <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, textAlign: 'center' }}>
+              {fullName}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              b. {person.birthDate.split(',')[1]?.trim() || '1985'} – Present
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Born in {person.birthPlace}
+            </Typography>
+          </Box>
+        );
+      })()}
 
       <Divider />
 
@@ -154,7 +159,7 @@ export default function Inspector({ person, onClose }: InspectorProps) {
           Biography Notes
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          {person.notes || 'No biography written yet. Click Edit Profile to add their life story.'}
+          {person.bio || 'No biography written yet. Click Edit Profile to add their life story.'}
         </Typography>
       </Box>
 

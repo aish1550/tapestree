@@ -7,81 +7,79 @@ import CenterFocusWeakIcon from '@mui/icons-material/CenterFocusWeak';
 
 export interface Person {
   id: string;
-  name: string;
+  firstName: string;
+  lastName?: string | null;
+  name?: string; // fallback
   birthDate: string;
-  birthPlace: string;
-  deathDate?: string;
-  photoUrl?: string;
-  role?: string;
+  birthPlace: string | null;
+  deathDate?: string | null;
+  photoUrl: string | null;
+  bio: string | null;
+  role?: 'focus' | 'parent' | 'spouse' | 'child';
   spouse?: string;
-  childrenCount?: number;
-  parents?: string[];
-  notes?: string;
 }
 
 interface TreeCanvasProps {
+  people: Person[];
+  relationships: any[];
   onSelectPerson: (person: Person) => void;
   selectedPersonId?: string;
 }
 
-// Sample family data reflecting the visual mockup
-const initialPeople: Person[] = [
-  {
-    id: '1',
-    name: 'Alexander Dupont',
-    birthDate: 'May 14, 1985',
-    birthPlace: 'Oakland, CA',
-    spouse: 'Sarah Chen',
-    photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=120&h=120',
-    notes: 'Father, Software Engineer, love hiking.',
-  },
-  {
-    id: '2',
-    name: 'Sarah Chen',
-    birthDate: 'Aug 12, 1987',
-    birthPlace: 'San Francisco, CA',
-    spouse: 'Alexander Dupont',
-    photoUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=120&h=120',
-    notes: 'Mother, Pediatrician, avid reader.',
-  },
-  {
-    id: '3',
-    name: 'David Dupont',
-    birthDate: 'Jan 25, 1952',
-    birthPlace: 'Paris, France',
-    spouse: 'Maria Dupont',
-    photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=120&h=120',
-  },
-  {
-    id: '4',
-    name: 'Maria Dupont',
-    birthDate: 'Jul 09, 1956',
-    birthPlace: 'Marseille, France',
-    spouse: 'David Dupont',
-    photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=120&h=120',
-  },
-  {
-    id: '5',
-    name: 'Liam Dupont',
-    birthDate: 'Oct 04, 2012',
-    birthPlace: 'San Francisco, CA',
-    photoUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&q=80&w=120&h=120',
-  },
-  {
-    id: '6',
-    name: 'Sophie Dupont',
-    birthDate: 'Dec 18, 2015',
-    birthPlace: 'San Francisco, CA',
-    photoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=120&h=120',
-  },
-];
-
-export default function TreeCanvas({ onSelectPerson, selectedPersonId }: TreeCanvasProps) {
+export default function TreeCanvas({ people, relationships, onSelectPerson, selectedPersonId }: TreeCanvasProps) {
   const [zoom, setZoom] = useState(100);
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 150));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 50));
   const handleResetZoom = () => setZoom(100);
+
+  // Group people by role for layout coordinates
+  const focusPerson = people.find((p) => p.role === 'focus');
+  const spouse = people.find((p) => p.role === 'spouse');
+  const parents = people.filter((p) => p.role === 'parent');
+  const children = people.filter((p) => p.role === 'child');
+
+  // Node dimension constants
+  const cardWidth = 220;
+  const cardHeight = 76;
+
+  // Calculate coordinates for nodes
+  const nodeCoords = new Map<string, { x: number; y: number }>();
+
+  // 1. Focus Person
+  if (focusPerson) {
+    nodeCoords.set(focusPerson.id, { x: 260, y: 280 });
+  }
+
+  // 2. Spouse
+  if (spouse) {
+    nodeCoords.set(spouse.id, { x: 520, y: 280 });
+  }
+
+  // 3. Parents (Top Row y = 100)
+  if (parents.length === 1) {
+    nodeCoords.set(parents[0].id, { x: 390, y: 100 });
+  } else if (parents.length >= 2) {
+    nodeCoords.set(parents[0].id, { x: 260, y: 100 });
+    nodeCoords.set(parents[1].id, { x: 520, y: 100 });
+  }
+
+  // 4. Children (Bottom Row y = 460)
+  if (children.length > 0) {
+    const spaceBetween = 250;
+    const totalChildrenWidth = (children.length - 1) * spaceBetween;
+    // Center children around the midpoint (x = 500)
+    const startX = 500 - totalChildrenWidth / 2 - cardWidth / 2;
+
+    children.forEach((child, index) => {
+      nodeCoords.set(child.id, { x: startX + index * spaceBetween, y: 460 });
+    });
+  }
+
+  // Find canvas dimensions based on child nodes to allow scrolling
+  const minX = Math.min(...Array.from(nodeCoords.values()).map(c => c.x), 50) - 50;
+  const maxX = Math.max(...Array.from(nodeCoords.values()).map(c => c.x + cardWidth), 950) + 50;
+  const canvasWidth = maxX - minX;
 
   return (
     <Box
@@ -129,17 +127,19 @@ export default function TreeCanvas({ onSelectPerson, selectedPersonId }: TreeCan
         </IconButton>
       </Box>
 
-      {/* Interactive Family Tree SVG Layout */}
+      {/* Dynamic Family Tree Canvas */}
       <Box
         sx={{
           transform: `scale(${zoom / 100})`,
+          transformOrigin: 'center center',
           transition: 'transform 0.15s ease-out',
-          width: 800,
-          height: 600,
+          width: canvasWidth,
+          height: 650,
           position: 'relative',
+          flexShrink: 0,
         }}
       >
-        {/* Connection Lines (SVG) */}
+        {/* Dynamic SVG Connections */}
         <svg
           style={{
             position: 'absolute',
@@ -150,40 +150,96 @@ export default function TreeCanvas({ onSelectPerson, selectedPersonId }: TreeCan
             pointerEvents: 'none',
           }}
         >
-          {/* David & Maria Marriage Connector */}
-          <path d="M 230 180 H 570" stroke="#1E3F20" strokeWidth="2" fill="none" />
-          {/* David & Maria Child Drop Line */}
-          <path d="M 400 180 V 230" stroke="#1E3F20" strokeWidth="2" fill="none" />
+          {/* A. Draw Parents to Focus Person Links */}
+          {parents.length === 2 && nodeCoords.has(parents[0].id) && nodeCoords.has(parents[1].id) && focusPerson && (
+            <>
+              {/* Horizontal bar between parents */}
+              <path
+                d={`M ${nodeCoords.get(parents[0].id)!.x + cardWidth / 2} 138 H ${nodeCoords.get(parents[1].id)!.x + cardWidth / 2}`}
+                stroke="#1E3F20"
+                strokeWidth="2"
+                fill="none"
+              />
+              {/* Drop line from parents midpoint down to focus person */}
+              <path
+                d={`M 500 138 V 280`}
+                stroke="#1E3F20"
+                strokeWidth="2"
+                fill="none"
+              />
+            </>
+          )}
+          {parents.length === 1 && nodeCoords.has(parents[0].id) && focusPerson && (
+            <path
+              d={`M ${nodeCoords.get(parents[0].id)!.x + cardWidth / 2} 176 V 280`}
+              stroke="#1E3F20"
+              strokeWidth="2"
+              fill="none"
+            />
+          )}
 
-          {/* Parents to Alexander Parent line */}
-          <path d="M 400 230 H 260 V 300" stroke="#1E3F20" strokeWidth="2" fill="none" />
+          {/* B. Draw Spousal Link between Focus Person and Spouse */}
+          {focusPerson && spouse && nodeCoords.has(focusPerson.id) && nodeCoords.has(spouse.id) && (
+            <path
+              d={`M ${nodeCoords.get(focusPerson.id)!.x + cardWidth} 318 H ${nodeCoords.get(spouse.id)!.x}`}
+              stroke="#1E3F20"
+              strokeWidth="2"
+              fill="none"
+            />
+          )}
 
-          {/* Alexander & Sarah Marriage Connector */}
-          <path d="M 260 350 H 540" stroke="#1E3F20" strokeWidth="2" fill="none" />
+          {/* C. Draw Children drop lines from Focus-Spouse connection */}
+          {children.length > 0 && focusPerson && (
+            <>
+              {/* Start point of child connection (middle of focus and spouse or middle of focus if single parent) */}
+              {(() => {
+                const parentX = spouse && nodeCoords.has(spouse.id)
+                  ? (nodeCoords.get(focusPerson.id)!.x + cardWidth + nodeCoords.get(spouse.id)!.x) / 2
+                  : nodeCoords.get(focusPerson.id)!.x + cardWidth / 2;
 
-          {/* Alexander & Sarah Child Drop Line */}
-          <path d="M 400 350 V 430" stroke="#1E3F20" strokeWidth="2" fill="none" />
-          {/* Children Split Line */}
-          <path d="M 260 430 H 540" stroke="#1E3F20" strokeWidth="2" fill="none" />
-          {/* Liam Line */}
-          <path d="M 260 430 V 470" stroke="#1E3F20" strokeWidth="2" fill="none" />
-          {/* Sophie Line */}
-          <path d="M 540 430 V 470" stroke="#1E3F20" strokeWidth="2" fill="none" />
+                const firstChildX = nodeCoords.get(children[0].id)!.x + cardWidth / 2;
+                const lastChildX = nodeCoords.get(children[children.length - 1].id)!.x + cardWidth / 2;
+
+                return (
+                  <>
+                    {/* Line dropping from marriage bar to children split bar */}
+                    <path
+                      d={`M ${parentX} 318 V 390`}
+                      stroke="#1E3F20"
+                      strokeWidth="2"
+                      fill="none"
+                    />
+                    {/* Horizontal split bar across children */}
+                    <path
+                      d={`M ${firstChildX} 390 H ${lastChildX}`}
+                      stroke="#1E3F20"
+                      strokeWidth="2"
+                      fill="none"
+                    />
+                    {/* Individual drop lines into child cards */}
+                    {children.map((child) => (
+                      <path
+                        key={`line-${child.id}`}
+                        d={`M ${nodeCoords.get(child.id)!.x + cardWidth / 2} 390 V 460`}
+                        stroke="#1E3F20"
+                        strokeWidth="2"
+                        fill="none"
+                      />
+                    ))}
+                  </>
+                );
+              })()}
+            </>
+          )}
         </svg>
 
-        {/* Nodes Layer */}
-        {initialPeople.map((person) => {
-          // Absolute positions representing tree structure
-          let x = 0;
-          let y = 0;
-          if (person.id === '3') { x = 120; y = 130; } // David
-          if (person.id === '4') { x = 460; y = 130; } // Maria
-          if (person.id === '1') { x = 150; y = 300; } // Alexander
-          if (person.id === '2') { x = 430; y = 300; } // Sarah
-          if (person.id === '5') { x = 150; y = 470; } // Liam
-          if (person.id === '6') { x = 430; y = 470; } // Sophie
+        {/* Render Cards */}
+        {people.map((person) => {
+          const coords = nodeCoords.get(person.id);
+          if (!coords) return null;
 
           const isSelected = selectedPersonId === person.id;
+          const fullName = `${person.firstName} ${person.lastName || ''}`;
 
           return (
             <Card
@@ -191,27 +247,29 @@ export default function TreeCanvas({ onSelectPerson, selectedPersonId }: TreeCan
               onClick={() => onSelectPerson(person)}
               sx={{
                 position: 'absolute',
-                left: x,
-                top: y,
-                width: 220,
+                left: coords.x - minX, // Offset by minX to keep nodes visible within canvas width
+                top: coords.y,
+                width: cardWidth,
                 cursor: 'pointer',
                 border: isSelected ? '2px solid' : '1px solid',
                 borderColor: isSelected ? 'primary.main' : 'transparent',
                 transition: 'all 0.2s',
                 '&:hover': {
-                  boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
+                  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
                   borderColor: isSelected ? 'primary.main' : 'rgba(30, 63, 32, 0.3)',
                 },
               }}
             >
               <CardContent sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, '&:last-child': { pb: 2 } }}>
-                <Avatar src={person.photoUrl} alt={person.name} sx={{ width: 44, height: 44 }} />
+                <Avatar src={person.photoUrl || undefined} alt={fullName} sx={{ width: 44, height: 44 }}>
+                  {person.firstName[0]}
+                </Avatar>
                 <Box>
                   <Typography variant="body2" noWrap sx={{ fontWeight: 'bold', width: 130 }}>
-                    {person.name}
+                    {fullName}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {person.birthDate.split(',')[1]?.trim() || '1985'} – Present
+                    {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
                   </Typography>
                 </Box>
               </CardContent>
