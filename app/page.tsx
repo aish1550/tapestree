@@ -1,66 +1,58 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+'use client';
+import React, { useState } from 'react';
+import { Box, Typography } from '@mui/material';
+import Sidebar from './components/Sidebar';
+import TreeCanvas, { Person } from './components/TreeCanvas';
+import Inspector from './components/Inspector';
 
 export default function Home() {
+  // Default selected person is Alexander Dupont (id = '1')
+  const [selectedPerson, setSelectedPerson] = useState<Person | undefined>({
+    id: '1',
+    name: 'Alexander Dupont',
+    birthDate: 'May 14, 1985',
+    birthPlace: 'Oakland, CA',
+    spouse: 'Sarah Chen',
+    photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=120&h=120',
+    notes: 'Father, Software Engineer, love hiking.',
+  });
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <Box sx={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      {/* 1. Left Sidebar Navigation */}
+      <Sidebar />
+
+      {/* 2. Central Family Tree Area */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, height: '100%' }}>
+        {/* Top Header Bar */}
+        <Box
+          sx={{
+            height: 64,
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            display: 'flex',
+            alignItems: 'center',
+            px: 3,
+            bgcolor: 'background.paper',
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+            Family Tree: Dupont-Chen
+          </Typography>
+        </Box>
+
+        {/* Tree Canvas */}
+        <TreeCanvas
+          selectedPersonId={selectedPerson?.id}
+          onSelectPerson={(person) => setSelectedPerson(person)}
         />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </Box>
+
+      {/* 3. Right Context Inspector */}
+      <Inspector
+        person={selectedPerson}
+        onClose={() => setSelectedPerson(undefined)}
+      />
+    </Box>
   );
 }
