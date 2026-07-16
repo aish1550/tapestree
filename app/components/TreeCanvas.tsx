@@ -362,9 +362,9 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
                 return (
                   <path
                     key={`rel-${rel.id}`}
-                    d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
+                    d={`M ${startX} ${startY} V ${midY} H ${endX} V ${endY}`}
                     stroke="#1E3F20"
-                    strokeWidth={2}
+                    strokeWidth={1.5}
                     fill="none"
                   />
                 );
