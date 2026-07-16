@@ -29,97 +29,140 @@ interface TreeCanvasProps {
 
 export default function TreeCanvas({ people, relationships, onSelectPerson, selectedPersonId }: TreeCanvasProps) {
   const [zoom, setZoom] = useState(100);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
   const viewportRef = useRef<HTMLDivElement>(null);
   
-  // Drag to pan state
-  const isDraggingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startYRef = useRef(0);
-  const scrollLeftRef = useRef(0);
-  const scrollTopRef = useRef(0);
+  // Drag offsets
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const panStartRef = useRef({ x: 0, y: 0 });
 
   const cardWidth = 220;
   const cardHeight = 76;
-
-  // 1. Calculate boundaries to set canvas size dynamically
-  const paddingRight = 600;
-  const paddingBottom = 600;
-  const maxX = Math.max(...people.map((p) => p.x), 1000) + paddingRight;
-  const maxY = Math.max(...people.map((p) => p.y), 1000) + paddingBottom;
-
   const scale = zoom / 100;
 
-  // 2. Smoothly scroll-to-center the selected node when focus changes
+  // 1. Center the view on selected node
+  const centerOnNode = (personId: string, smooth = true) => {
+    const person = people.find((p) => p.id === personId);
+    if (!person || !viewportRef.current) return;
+
+    const W = viewportRef.current.clientWidth;
+    const H = viewportRef.current.clientHeight;
+
+    const targetX = W / 2 - (person.x + cardWidth / 2) * scale;
+    const targetY = H / 2 - (person.y + cardHeight / 2) * scale;
+
+    setPanX(targetX);
+    setPanY(targetY);
+  };
+
+  // Trigger centering when selected person changes
   useEffect(() => {
-    if (!selectedPersonId || !viewportRef.current) return;
-    const person = people.find((p) => p.id === selectedPersonId);
-    if (!person) return;
+    if (selectedPersonId) {
+      centerOnNode(selectedPersonId, true);
+    }
+  }, [selectedPersonId]);
 
-    const viewport = viewportRef.current;
-    const viewportWidth = viewport.clientWidth;
-    const viewportHeight = viewport.clientHeight;
+  // Center on oldest founder on initial mount
+  useEffect(() => {
+    if (people.length > 0 && !selectedPersonId) {
+      const founder = people.reduce((oldest, current) => {
+        const oldestDate = new Date(oldest.birthDate).getTime();
+        const currentDate = new Date(current.birthDate).getTime();
+        return currentDate < oldestDate ? current : oldest;
+      }, people[0]);
+      if (founder) {
+        centerOnNode(founder.id, false);
+      }
+    }
+  }, [people]);
 
-    // Target scroll coordinates centered on node
-    const targetLeft = person.x * scale - viewportWidth / 2 + (cardWidth * scale) / 2;
-    const targetTop = person.y * scale - viewportHeight / 2 + (cardHeight * scale) / 2;
+  // 2. Zoom centered on viewport midpoint
+  const handleZoom = (newZoom: number) => {
+    if (!viewportRef.current) return;
+    const W = viewportRef.current.clientWidth;
+    const H = viewportRef.current.clientHeight;
+    const s1 = scale;
+    const s2 = newZoom / 100;
 
-    viewport.scrollTo({
-      left: Math.max(0, targetLeft),
-      top: Math.max(0, targetTop),
-      behavior: 'smooth',
-    });
-  }, [selectedPersonId, zoom, people, scale]);
+    // Point in canvas space at screen center
+    const canvasCenterX = (W / 2 - panX) / s1;
+    const canvasCenterY = (H / 2 - panY) / s1;
 
-  // 3. Zoom handlers
-  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 150));
-  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 30));
+    setZoom(newZoom);
+    setPanX(W / 2 - canvasCenterX * s2);
+    setPanY(H / 2 - canvasCenterY * s2);
+  };
+
+  const handleZoomIn = () => handleZoom(Math.min(zoom + 10, 150));
+  const handleZoomOut = () => handleZoom(Math.max(zoom - 10, 30));
   const handleResetZoom = () => {
     setZoom(100);
-    // Recenter on founder
-    const founder = people.reduce((oldest, current) => {
-      const oldestDate = new Date(oldest.birthDate).getTime();
-      const currentDate = new Date(current.birthDate).getTime();
-      return currentDate < oldestDate ? current : oldest;
-    }, people[0]);
-
-    if (founder && viewportRef.current) {
-      const viewport = viewportRef.current;
-      viewport.scrollTo({
-        left: founder.x - viewport.clientWidth / 2 + cardWidth / 2,
-        top: founder.y - viewport.clientHeight / 2 + cardHeight / 2,
-        behavior: 'smooth',
-      });
+    if (selectedPersonId) {
+      centerOnNode(selectedPersonId, true);
+    } else if (people.length > 0) {
+      const founder = people[0];
+      centerOnNode(founder.id, true);
     }
   };
 
-  // 4. Mouse Drag handlers for pan
+  // 3. Trackpad/Mouse Wheel Panning & Zooming (Figma Style)
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      
+      if (e.ctrlKey || e.metaKey) {
+        // Zooming (pinch to zoom)
+        const zoomFactor = e.deltaY < 0 ? 5 : -5;
+        const nextZoom = Math.max(30, Math.min(150, zoom + zoomFactor));
+        
+        // Calculate new scale center
+        const W = viewport.clientWidth;
+        const H = viewport.clientHeight;
+        const s1 = zoom / 100;
+        const s2 = nextZoom / 100;
+        const canvasCenterX = (W / 2 - panX) / s1;
+        const canvasCenterY = (H / 2 - panY) / s1;
+
+        setZoom(nextZoom);
+        setPanX(W / 2 - canvasCenterX * s2);
+        setPanY(H / 2 - canvasCenterY * s2);
+      } else {
+        // Free panning via scroll wheel / trackpad swipe
+        setPanX((prev) => prev - e.deltaX);
+        setPanY((prev) => prev - e.deltaY);
+      }
+    };
+
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      viewport.removeEventListener('wheel', onWheel);
+    };
+  }, [zoom, panX, panY]);
+
+  // 4. Mouse Drag-to-Pan Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Only pan on left-click
-    if (e.button !== 0 || !viewportRef.current) return;
-    isDraggingRef.current = true;
-    startXRef.current = e.pageX - viewportRef.current.offsetLeft;
-    startYRef.current = e.pageY - viewportRef.current.offsetTop;
-    scrollLeftRef.current = viewportRef.current.scrollLeft;
-    scrollTopRef.current = viewportRef.current.scrollTop;
-    viewportRef.current.style.cursor = 'grabbing';
+    if (e.button !== 0) return; // Only pan on left click
+    setIsDragging(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    panStartRef.current = { x: panX, y: panY };
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDraggingRef.current || !viewportRef.current) return;
-    e.preventDefault();
-    const x = e.pageX - viewportRef.current.offsetLeft;
-    const y = e.pageY - viewportRef.current.offsetTop;
-    const walkX = x - startXRef.current;
-    const walkY = y - startYRef.current;
-    viewportRef.current.scrollLeft = scrollLeftRef.current - walkX;
-    viewportRef.current.scrollTop = scrollTopRef.current - walkY;
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setPanX(panStartRef.current.x + dx);
+    setPanY(panStartRef.current.y + dy);
   };
 
   const handleMouseUpOrLeave = () => {
-    isDraggingRef.current = false;
-    if (viewportRef.current) {
-      viewportRef.current.style.cursor = 'grab';
-    }
+    setIsDragging(false);
   };
 
   return (
@@ -166,7 +209,7 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
         </IconButton>
       </Box>
 
-      {/* Viewport Frame (Scrollable Container) */}
+      {/* Figma Infinite Viewport Frame */}
       <Box
         ref={viewportRef}
         onMouseDown={handleMouseDown}
@@ -177,38 +220,35 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
           flexGrow: 1,
           width: '100%',
           height: '100%',
-          overflow: 'auto',
-          cursor: 'grab',
+          overflow: 'hidden', // Hide standard browser scrollbars
+          cursor: isDragging ? 'grabbing' : 'grab',
           position: 'relative',
           userSelect: 'none',
-          '&::-webkit-scrollbar': {
-            width: '8px',
-            height: '8px',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            backgroundColor: 'rgba(30, 63, 32, 0.2)',
-            borderRadius: '4px',
-          },
         }}
       >
-        {/* Infinite Scaling Grid Canvas */}
+        {/* Figma Infinite Translation Canvas */}
         <Box
           sx={{
-            width: maxX * scale,
-            height: maxY * scale,
-            position: 'relative',
-            transformOrigin: 'top left',
-            // Simple grid background for texture
-            background: scale > 0.4 ? 'radial-gradient(circle, rgba(30, 63, 32, 0.05) 1px, transparent 1px)' : 'none',
-            backgroundSize: `${30 * scale}px ${30 * scale}px`,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            transform: `translate(${panX}px, ${panY}px) scale(${scale})`,
+            transformOrigin: '0 0',
+            // Smooth transitions only when the user is NOT dragging (e.g. during click-to-center zoom)
+            transition: isDragging ? 'none' : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+            // Figma Grid background texture
+            background: zoom > 35 ? 'radial-gradient(circle, rgba(30, 63, 32, 0.08) 1px, transparent 1px)' : 'none',
+            backgroundSize: '30px 30px',
           }}
         >
-          {/* Dynamic SVG Connections */}
+          {/* SVG Connections */}
           <svg
             style={{
               position: 'absolute',
-              width: '100%',
-              height: '100%',
+              width: '10000px', // Canvas spans deep
+              height: '10000px',
               top: 0,
               left: 0,
               pointerEvents: 'none',
@@ -220,45 +260,40 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
               if (!p1 || !p2) return null;
 
               if (rel.type === 'spouse') {
-                // Horizontal link between spouses
-                // Draw line between the closest horizontal edges of the cards
                 const leftNode = p1.x < p2.x ? p1 : p2;
                 const rightNode = p1.x < p2.x ? p2 : p1;
 
-                const startX = (leftNode.x + cardWidth) * scale;
-                const startY = (leftNode.y + cardHeight / 2) * scale;
-                const endX = rightNode.x * scale;
-                const endY = (rightNode.y + cardHeight / 2) * scale;
+                const startX = leftNode.x + cardWidth;
+                const startY = leftNode.y + cardHeight / 2;
+                const endX = rightNode.x;
+                const endY = rightNode.y + cardHeight / 2;
 
                 return (
                   <path
                     key={`rel-${rel.id}`}
                     d={`M ${startX} ${startY} H ${endX}`}
                     stroke="#1E3F20"
-                    strokeWidth={2 * scale}
-                    strokeDasharray={`${4 * scale}, ${4 * scale}`} // Dotted line for spousal marriages
+                    strokeWidth={2}
+                    strokeDasharray="4, 4"
                     fill="none"
                   />
                 );
               }
 
               if (rel.type === 'parent-child') {
-                // Parent-Child connection: Orthogonal layout drops
-                // p1 is parent (top), p2 is child (bottom)
-                const startX = (p1.x + cardWidth / 2) * scale;
-                const startY = (p1.y + cardHeight) * scale;
-                const endX = (p2.x + cardWidth / 2) * scale;
-                const endY = p2.y * scale;
+                const startX = p1.x + cardWidth / 2;
+                const startY = p1.y + cardHeight;
+                const endX = p2.x + cardWidth / 2;
+                const endY = p2.y;
 
-                // Vertical drop midpoint
-                const midY = startY + 40 * scale;
+                const midY = startY + 30;
 
                 return (
                   <path
                     key={`rel-${rel.id}`}
                     d={`M ${startX} ${startY} V ${midY} H ${endX} V ${endY}`}
                     stroke="#1E3F20"
-                    strokeWidth={1.5 * scale}
+                    strokeWidth={1.5}
                     fill="none"
                   />
                 );
@@ -276,15 +311,18 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
             return (
               <Card
                 key={person.id}
-                onClick={() => onSelectPerson(person)}
+                onClick={(e) => {
+                  e.stopPropagation(); // Avoid triggering background pan clicks
+                  onSelectPerson(person);
+                }}
                 sx={{
                   position: 'absolute',
-                  left: person.x * scale,
-                  top: person.y * scale,
-                  width: cardWidth * scale,
-                  height: cardHeight * scale,
+                  left: person.x,
+                  top: person.y,
+                  width: cardWidth,
+                  height: cardHeight,
                   cursor: 'pointer',
-                  border: isSelected ? `${2 * scale}px solid` : `${1 * scale}px solid`,
+                  border: isSelected ? '2px solid' : '1px solid',
                   borderColor: isSelected ? 'primary.main' : 'transparent',
                   transition: 'box-shadow 0.2s, border-color 0.2s',
                   zIndex: isSelected ? 5 : 1,
@@ -298,18 +336,18 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
               >
                 <CardContent
                   sx={{
-                    p: 1.5 * scale,
+                    p: 1.5,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 1.5 * scale,
+                    gap: 1.5,
                     width: '100%',
-                    '&:last-child': { pb: 1.5 * scale },
+                    '&:last-child': { pb: 1.5 },
                   }}
                 >
                   <Avatar
                     src={person.photoUrl || undefined}
                     alt={fullName}
-                    sx={{ width: 44 * scale, height: 44 * scale }}
+                    sx={{ width: 44, height: 44 }}
                   >
                     {person.firstName[0]}
                   </Avatar>
@@ -317,14 +355,14 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
                     <Typography
                       variant="body2"
                       noWrap
-                      sx={{ fontWeight: 'bold', fontSize: `${0.875 * scale}rem` }}
+                      sx={{ fontWeight: 'bold' }}
                     >
                       {fullName}
                     </Typography>
                     <Typography
                       variant="caption"
                       color="text.secondary"
-                      sx={{ fontSize: `${0.75 * scale}rem`, display: 'block' }}
+                      sx={{ display: 'block' }}
                     >
                       {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
                     </Typography>
