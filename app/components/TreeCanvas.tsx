@@ -51,9 +51,13 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
     const W = viewportRef.current.clientWidth;
     const H = viewportRef.current.clientHeight;
 
-    const targetX = W / 2 - (person.x + cardWidth / 2) * scale;
-    const targetY = H / 2 - (person.y + cardHeight / 2) * scale;
+    const targetZoom = 120;
+    const targetScale = targetZoom / 100;
 
+    const targetX = W / 2 - (person.x + cardWidth / 2) * targetScale;
+    const targetY = H / 2 - (person.y + cardHeight / 2) * targetScale;
+
+    setZoom(targetZoom);
     setPanX(targetX);
     setPanY(targetY);
   };
