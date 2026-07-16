@@ -6,18 +6,16 @@ import TreeCanvas, { Person } from './components/TreeCanvas';
 import Inspector from './components/Inspector';
 
 export default function Home() {
-  const [focusPersonId, setFocusPersonId] = useState<string | undefined>(undefined);
   const [treeData, setTreeData] = useState<{ treeName: string; people: Person[]; relationships: any[] } | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<Person | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
-  // Fetch Tree Data whenever focused member changes
+  // Fetch all tree data once on mount
   useEffect(() => {
     async function fetchTree() {
       try {
         setLoading(true);
-        const url = focusPersonId ? `/api/tree?focus=${focusPersonId}` : '/api/tree';
-        const response = await fetch(url);
+        const response = await fetch('/api/tree');
         const data = await response.json();
 
         if (response.ok) {
@@ -43,34 +41,15 @@ export default function Home() {
             };
           });
 
-          // Compute spouse name for the focused person as well
-          let focusSpouseName = 'None';
-          if (data.focusPerson) {
-            const focusSpouseRel = data.relationships.find((r: any) => 
-              r.type === 'spouse' && (r.personId1 === data.focusPerson.id || r.personId2 === data.focusPerson.id)
-            );
-            if (focusSpouseRel) {
-              const spouseId = focusSpouseRel.personId1 === data.focusPerson.id ? focusSpouseRel.personId2 : focusSpouseRel.personId1;
-              const spouseObj = data.people.find((x: any) => x.id === spouseId);
-              if (spouseObj) {
-                focusSpouseName = `${spouseObj.firstName} ${spouseObj.lastName || ''}`;
-              }
-            }
-          }
-
-          const formattedFocusPerson = data.focusPerson ? {
-            ...data.focusPerson,
-            spouse: focusSpouseName,
-            birthDate: data.focusPerson.birthDate ? new Date(data.focusPerson.birthDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Unknown',
-            deathDate: data.focusPerson.deathDate ? new Date(data.focusPerson.deathDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : undefined,
-          } : undefined;
+          // Default selected person is the focus person (root)
+          const defaultFocus = formattedPeople.find((x: any) => x.id === data.focusPerson.id);
 
           setTreeData({
             treeName: data.treeName,
             people: formattedPeople,
             relationships: data.relationships,
           });
-          setSelectedPerson(formattedFocusPerson);
+          setSelectedPerson(defaultFocus);
         } else {
           console.error('API Error:', data.error);
         }
@@ -82,7 +61,7 @@ export default function Home() {
     }
 
     fetchTree();
-  }, [focusPersonId]);
+  }, []);
 
   return (
     <Box sx={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
@@ -118,13 +97,7 @@ export default function Home() {
             people={treeData?.people || []}
             relationships={treeData?.relationships || []}
             selectedPersonId={selectedPerson?.id}
-            onSelectPerson={(person) => {
-              setSelectedPerson(person);
-              // Refocus tree if clicking someone else
-              if (person.id !== focusPersonId) {
-                setFocusPersonId(person.id);
-              }
-            }}
+            onSelectPerson={(person) => setSelectedPerson(person)}
           />
         )}
       </Box>

@@ -13,6 +13,8 @@ interface TempPerson {
   deathDate: Date | null;
   photoUrl: string;
   bio: string;
+  x: number;
+  y: number;
   dbId?: string; // Will hold the created database UUID
 }
 
@@ -111,6 +113,8 @@ async function main() {
     deathDate: new Date('1905-11-20'),
     photoUrl: maleAvatars[0],
     bio: 'Family founder. Emigrated from London. Operated a farm and taught woodcraft.',
+    x: 200,
+    y: 100,
   };
 
   const gen0Mother: TempPerson = {
@@ -123,6 +127,8 @@ async function main() {
     deathDate: new Date('1912-03-14'),
     photoUrl: femaleAvatars[0],
     bio: 'Founding matriarch. Noted seamstress and local teacher.',
+    x: 460,
+    y: 100,
   };
 
   peopleList.push(gen0Father, gen0Mother);
@@ -136,6 +142,7 @@ async function main() {
 
   // Generation Index
   let genIndex = 1;
+  const genXTracker = new Map<number, number>();
 
   // Generational simulation loop
   while (peopleList.length < TARGET_SIZE) {
@@ -175,6 +182,8 @@ async function main() {
         const motherBirthYear = mother.birthDate.getFullYear();
         const finalBirthYear = Math.max(childBirthYear, motherBirthYear + 18);
 
+        const currentX = genXTracker.get(genIndex) || 50;
+
         const child: TempPerson = {
           tempId: nextTempId(),
           firstName: faker.person.firstName(childGender),
@@ -185,7 +194,11 @@ async function main() {
           deathDate: finalBirthYear < 1930 ? new Date(`${finalBirthYear + faker.number.int({ min: 60, max: 90 })}-08-10`) : null,
           photoUrl: childGender === 'male' ? faker.helpers.arrayElement(maleAvatars) : faker.helpers.arrayElement(femaleAvatars),
           bio: faker.lorem.paragraph(),
+          x: currentX,
+          y: genIndex * 240 + 100,
         };
+
+        genXTracker.set(genIndex, currentX + 280);
 
         peopleList.push(child);
         nextGenNodes.push(child);
@@ -217,7 +230,11 @@ async function main() {
             deathDate: spouseBirthYear < 1930 ? new Date(`${spouseBirthYear + faker.number.int({ min: 60, max: 90 })}-04-05`) : null,
             photoUrl: spouseGender === 'male' ? faker.helpers.arrayElement(maleAvatars) : faker.helpers.arrayElement(femaleAvatars),
             bio: faker.lorem.paragraph(),
+            x: child.x + 240,
+            y: child.y,
           };
+
+          genXTracker.set(genIndex, child.x + 560);
 
           peopleList.push(spouse);
           
@@ -251,6 +268,8 @@ async function main() {
         deathDate: tp.deathDate,
         photoUrl: tp.photoUrl,
         bio: tp.bio,
+        x: tp.x,
+        y: tp.y,
         isRemembranceNode: false,
       },
     });

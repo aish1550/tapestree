@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Box, Card, CardContent, Typography, Avatar, IconButton } from '@mui/material';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
@@ -15,7 +15,8 @@ export interface Person {
   deathDate?: string | null;
   photoUrl: string | null;
   bio: string | null;
-  role?: 'focus' | 'parent' | 'spouse' | 'child';
+  x: number;
+  y: number;
   spouse?: string;
 }
 
@@ -28,58 +29,98 @@ interface TreeCanvasProps {
 
 export default function TreeCanvas({ people, relationships, onSelectPerson, selectedPersonId }: TreeCanvasProps) {
   const [zoom, setZoom] = useState(100);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  
+  // Drag to pan state
+  const isDraggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
+  const scrollLeftRef = useRef(0);
+  const scrollTopRef = useRef(0);
 
-  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 150));
-  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 50));
-  const handleResetZoom = () => setZoom(100);
-
-  // Group people by role for layout coordinates
-  const focusPerson = people.find((p) => p.role === 'focus');
-  const spouse = people.find((p) => p.role === 'spouse');
-  const parents = people.filter((p) => p.role === 'parent');
-  const children = people.filter((p) => p.role === 'child');
-
-  // Node dimension constants
   const cardWidth = 220;
   const cardHeight = 76;
 
-  // Calculate coordinates for nodes
-  const nodeCoords = new Map<string, { x: number; y: number }>();
+  // 1. Calculate boundaries to set canvas size dynamically
+  const paddingRight = 600;
+  const paddingBottom = 600;
+  const maxX = Math.max(...people.map((p) => p.x), 1000) + paddingRight;
+  const maxY = Math.max(...people.map((p) => p.y), 1000) + paddingBottom;
 
-  // 1. Focus Person
-  if (focusPerson) {
-    nodeCoords.set(focusPerson.id, { x: 260, y: 280 });
-  }
+  const scale = zoom / 100;
 
-  // 2. Spouse
-  if (spouse) {
-    nodeCoords.set(spouse.id, { x: 520, y: 280 });
-  }
+  // 2. Smoothly scroll-to-center the selected node when focus changes
+  useEffect(() => {
+    if (!selectedPersonId || !viewportRef.current) return;
+    const person = people.find((p) => p.id === selectedPersonId);
+    if (!person) return;
 
-  // 3. Parents (Top Row y = 100)
-  if (parents.length === 1) {
-    nodeCoords.set(parents[0].id, { x: 390, y: 100 });
-  } else if (parents.length >= 2) {
-    nodeCoords.set(parents[0].id, { x: 260, y: 100 });
-    nodeCoords.set(parents[1].id, { x: 520, y: 100 });
-  }
+    const viewport = viewportRef.current;
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
 
-  // 4. Children (Bottom Row y = 460)
-  if (children.length > 0) {
-    const spaceBetween = 250;
-    const totalChildrenWidth = (children.length - 1) * spaceBetween;
-    // Center children around the midpoint (x = 500)
-    const startX = 500 - totalChildrenWidth / 2 - cardWidth / 2;
+    // Target scroll coordinates centered on node
+    const targetLeft = person.x * scale - viewportWidth / 2 + (cardWidth * scale) / 2;
+    const targetTop = person.y * scale - viewportHeight / 2 + (cardHeight * scale) / 2;
 
-    children.forEach((child, index) => {
-      nodeCoords.set(child.id, { x: startX + index * spaceBetween, y: 460 });
+    viewport.scrollTo({
+      left: Math.max(0, targetLeft),
+      top: Math.max(0, targetTop),
+      behavior: 'smooth',
     });
-  }
+  }, [selectedPersonId, zoom, people, scale]);
 
-  // Find canvas dimensions based on child nodes to allow scrolling
-  const minX = Math.min(...Array.from(nodeCoords.values()).map(c => c.x), 50) - 50;
-  const maxX = Math.max(...Array.from(nodeCoords.values()).map(c => c.x + cardWidth), 950) + 50;
-  const canvasWidth = maxX - minX;
+  // 3. Zoom handlers
+  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 10, 150));
+  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 10, 30));
+  const handleResetZoom = () => {
+    setZoom(100);
+    // Recenter on founder
+    const founder = people.reduce((oldest, current) => {
+      const oldestDate = new Date(oldest.birthDate).getTime();
+      const currentDate = new Date(current.birthDate).getTime();
+      return currentDate < oldestDate ? current : oldest;
+    }, people[0]);
+
+    if (founder && viewportRef.current) {
+      const viewport = viewportRef.current;
+      viewport.scrollTo({
+        left: founder.x - viewport.clientWidth / 2 + cardWidth / 2,
+        top: founder.y - viewport.clientHeight / 2 + cardHeight / 2,
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  // 4. Mouse Drag handlers for pan
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Only pan on left-click
+    if (e.button !== 0 || !viewportRef.current) return;
+    isDraggingRef.current = true;
+    startXRef.current = e.pageX - viewportRef.current.offsetLeft;
+    startYRef.current = e.pageY - viewportRef.current.offsetTop;
+    scrollLeftRef.current = viewportRef.current.scrollLeft;
+    scrollTopRef.current = viewportRef.current.scrollTop;
+    viewportRef.current.style.cursor = 'grabbing';
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingRef.current || !viewportRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - viewportRef.current.offsetLeft;
+    const y = e.pageY - viewportRef.current.offsetTop;
+    const walkX = x - startXRef.current;
+    const walkY = y - startYRef.current;
+    viewportRef.current.scrollLeft = scrollLeftRef.current - walkX;
+    viewportRef.current.scrollTop = scrollTopRef.current - walkY;
+  };
+
+  const handleMouseUpOrLeave = () => {
+    isDraggingRef.current = false;
+    if (viewportRef.current) {
+      viewportRef.current.style.cursor = 'grab';
+    }
+  };
 
   return (
     <Box
@@ -88,13 +129,11 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
         height: '100vh',
         bgcolor: 'background.default',
         position: 'relative',
-        overflow: 'auto',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        flexDirection: 'column',
       }}
     >
-      {/* Zoom / Controls overlay */}
+      {/* Zoom Controls Overlay */}
       <Box
         sx={{
           position: 'absolute',
@@ -127,155 +166,174 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
         </IconButton>
       </Box>
 
-      {/* Dynamic Family Tree Canvas */}
+      {/* Viewport Frame (Scrollable Container) */}
       <Box
+        ref={viewportRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUpOrLeave}
+        onMouseLeave={handleMouseUpOrLeave}
         sx={{
-          transform: `scale(${zoom / 100})`,
-          transformOrigin: 'center center',
-          transition: 'transform 0.15s ease-out',
-          width: canvasWidth,
-          height: 650,
+          flexGrow: 1,
+          width: '100%',
+          height: '100%',
+          overflow: 'auto',
+          cursor: 'grab',
           position: 'relative',
-          flexShrink: 0,
+          userSelect: 'none',
+          '&::-webkit-scrollbar': {
+            width: '8px',
+            height: '8px',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            backgroundColor: 'rgba(30, 63, 32, 0.2)',
+            borderRadius: '4px',
+          },
         }}
       >
-        {/* Dynamic SVG Connections */}
-        <svg
-          style={{
-            position: 'absolute',
-            width: '100%',
-            height: '100%',
-            top: 0,
-            left: 0,
-            pointerEvents: 'none',
+        {/* Infinite Scaling Grid Canvas */}
+        <Box
+          sx={{
+            width: maxX * scale,
+            height: maxY * scale,
+            position: 'relative',
+            transformOrigin: 'top left',
+            // Simple grid background for texture
+            background: scale > 0.4 ? 'radial-gradient(circle, rgba(30, 63, 32, 0.05) 1px, transparent 1px)' : 'none',
+            backgroundSize: `${30 * scale}px ${30 * scale}px`,
           }}
         >
-          {/* A. Draw Parents to Focus Person Links */}
-          {parents.length === 2 && nodeCoords.has(parents[0].id) && nodeCoords.has(parents[1].id) && focusPerson && (
-            <>
-              {/* Horizontal bar between parents */}
-              <path
-                d={`M ${nodeCoords.get(parents[0].id)!.x + cardWidth / 2} 138 H ${nodeCoords.get(parents[1].id)!.x + cardWidth / 2}`}
-                stroke="#1E3F20"
-                strokeWidth="2"
-                fill="none"
-              />
-              {/* Drop line from parents midpoint down to focus person */}
-              <path
-                d={`M 500 138 V 280`}
-                stroke="#1E3F20"
-                strokeWidth="2"
-                fill="none"
-              />
-            </>
-          )}
-          {parents.length === 1 && nodeCoords.has(parents[0].id) && focusPerson && (
-            <path
-              d={`M ${nodeCoords.get(parents[0].id)!.x + cardWidth / 2} 176 V 280`}
-              stroke="#1E3F20"
-              strokeWidth="2"
-              fill="none"
-            />
-          )}
+          {/* Dynamic SVG Connections */}
+          <svg
+            style={{
+              position: 'absolute',
+              width: '100%',
+              height: '100%',
+              top: 0,
+              left: 0,
+              pointerEvents: 'none',
+            }}
+          >
+            {relationships.map((rel) => {
+              const p1 = people.find((p) => p.id === rel.personId1);
+              const p2 = people.find((p) => p.id === rel.personId2);
+              if (!p1 || !p2) return null;
 
-          {/* B. Draw Spousal Link between Focus Person and Spouse */}
-          {focusPerson && spouse && nodeCoords.has(focusPerson.id) && nodeCoords.has(spouse.id) && (
-            <path
-              d={`M ${nodeCoords.get(focusPerson.id)!.x + cardWidth} 318 H ${nodeCoords.get(spouse.id)!.x}`}
-              stroke="#1E3F20"
-              strokeWidth="2"
-              fill="none"
-            />
-          )}
+              if (rel.type === 'spouse') {
+                // Horizontal link between spouses
+                // Draw line between the closest horizontal edges of the cards
+                const leftNode = p1.x < p2.x ? p1 : p2;
+                const rightNode = p1.x < p2.x ? p2 : p1;
 
-          {/* C. Draw Children drop lines from Focus-Spouse connection */}
-          {children.length > 0 && focusPerson && (
-            <>
-              {/* Start point of child connection (middle of focus and spouse or middle of focus if single parent) */}
-              {(() => {
-                const parentX = spouse && nodeCoords.has(spouse.id)
-                  ? (nodeCoords.get(focusPerson.id)!.x + cardWidth + nodeCoords.get(spouse.id)!.x) / 2
-                  : nodeCoords.get(focusPerson.id)!.x + cardWidth / 2;
-
-                const firstChildX = nodeCoords.get(children[0].id)!.x + cardWidth / 2;
-                const lastChildX = nodeCoords.get(children[children.length - 1].id)!.x + cardWidth / 2;
+                const startX = (leftNode.x + cardWidth) * scale;
+                const startY = (leftNode.y + cardHeight / 2) * scale;
+                const endX = rightNode.x * scale;
+                const endY = (rightNode.y + cardHeight / 2) * scale;
 
                 return (
-                  <>
-                    {/* Line dropping from marriage bar to children split bar */}
-                    <path
-                      d={`M ${parentX} 318 V 390`}
-                      stroke="#1E3F20"
-                      strokeWidth="2"
-                      fill="none"
-                    />
-                    {/* Horizontal split bar across children */}
-                    <path
-                      d={`M ${firstChildX} 390 H ${lastChildX}`}
-                      stroke="#1E3F20"
-                      strokeWidth="2"
-                      fill="none"
-                    />
-                    {/* Individual drop lines into child cards */}
-                    {children.map((child) => (
-                      <path
-                        key={`line-${child.id}`}
-                        d={`M ${nodeCoords.get(child.id)!.x + cardWidth / 2} 390 V 460`}
-                        stroke="#1E3F20"
-                        strokeWidth="2"
-                        fill="none"
-                      />
-                    ))}
-                  </>
+                  <path
+                    key={`rel-${rel.id}`}
+                    d={`M ${startX} ${startY} H ${endX}`}
+                    stroke="#1E3F20"
+                    strokeWidth={2 * scale}
+                    strokeDasharray={`${4 * scale}, ${4 * scale}`} // Dotted line for spousal marriages
+                    fill="none"
+                  />
                 );
-              })()}
-            </>
-          )}
-        </svg>
+              }
 
-        {/* Render Cards */}
-        {people.map((person) => {
-          const coords = nodeCoords.get(person.id);
-          if (!coords) return null;
+              if (rel.type === 'parent-child') {
+                // Parent-Child connection: Orthogonal layout drops
+                // p1 is parent (top), p2 is child (bottom)
+                const startX = (p1.x + cardWidth / 2) * scale;
+                const startY = (p1.y + cardHeight) * scale;
+                const endX = (p2.x + cardWidth / 2) * scale;
+                const endY = p2.y * scale;
 
-          const isSelected = selectedPersonId === person.id;
-          const fullName = `${person.firstName} ${person.lastName || ''}`;
+                // Vertical drop midpoint
+                const midY = startY + 40 * scale;
 
-          return (
-            <Card
-              key={person.id}
-              onClick={() => onSelectPerson(person)}
-              sx={{
-                position: 'absolute',
-                left: coords.x - minX, // Offset by minX to keep nodes visible within canvas width
-                top: coords.y,
-                width: cardWidth,
-                cursor: 'pointer',
-                border: isSelected ? '2px solid' : '1px solid',
-                borderColor: isSelected ? 'primary.main' : 'transparent',
-                transition: 'all 0.2s',
-                '&:hover': {
-                  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
-                  borderColor: isSelected ? 'primary.main' : 'rgba(30, 63, 32, 0.3)',
-                },
-              }}
-            >
-              <CardContent sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, '&:last-child': { pb: 2 } }}>
-                <Avatar src={person.photoUrl || undefined} alt={fullName} sx={{ width: 44, height: 44 }}>
-                  {person.firstName[0]}
-                </Avatar>
-                <Box>
-                  <Typography variant="body2" noWrap sx={{ fontWeight: 'bold', width: 130 }}>
-                    {fullName}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          );
-        })}
+                return (
+                  <path
+                    key={`rel-${rel.id}`}
+                    d={`M ${startX} ${startY} V ${midY} H ${endX} V ${endY}`}
+                    stroke="#1E3F20"
+                    strokeWidth={1.5 * scale}
+                    fill="none"
+                  />
+                );
+              }
+
+              return null;
+            })}
+          </svg>
+
+          {/* Cards Layer */}
+          {people.map((person) => {
+            const isSelected = selectedPersonId === person.id;
+            const fullName = `${person.firstName} ${person.lastName || ''}`;
+
+            return (
+              <Card
+                key={person.id}
+                onClick={() => onSelectPerson(person)}
+                sx={{
+                  position: 'absolute',
+                  left: person.x * scale,
+                  top: person.y * scale,
+                  width: cardWidth * scale,
+                  height: cardHeight * scale,
+                  cursor: 'pointer',
+                  border: isSelected ? `${2 * scale}px solid` : `${1 * scale}px solid`,
+                  borderColor: isSelected ? 'primary.main' : 'transparent',
+                  transition: 'box-shadow 0.2s, border-color 0.2s',
+                  zIndex: isSelected ? 5 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  '&:hover': {
+                    boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
+                    borderColor: isSelected ? 'primary.main' : 'rgba(30, 63, 32, 0.3)',
+                  },
+                }}
+              >
+                <CardContent
+                  sx={{
+                    p: 1.5 * scale,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5 * scale,
+                    width: '100%',
+                    '&:last-child': { pb: 1.5 * scale },
+                  }}
+                >
+                  <Avatar
+                    src={person.photoUrl || undefined}
+                    alt={fullName}
+                    sx={{ width: 44 * scale, height: 44 * scale }}
+                  >
+                    {person.firstName[0]}
+                  </Avatar>
+                  <Box sx={{ overflow: 'hidden', flexGrow: 1 }}>
+                    <Typography
+                      variant="body2"
+                      noWrap
+                      sx={{ fontWeight: 'bold', fontSize: `${0.875 * scale}rem` }}
+                    >
+                      {fullName}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontSize: `${0.75 * scale}rem`, display: 'block' }}
+                    >
+                      {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </Box>
       </Box>
     </Box>
   );

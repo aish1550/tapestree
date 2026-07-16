@@ -60,6 +60,8 @@ model Person {
   photoUrl           String?
   bio                String?
   metadata           String           @default("{}") // Store custom attributes as serialized JSON string
+  x                  Int              @default(0)
+  y                  Int              @default(0)
   createdAt          DateTime         @default(now())
   relationships1     Relationship[]   @relation("Person1")
   relationships2     Relationship[]   @relation("Person2")
