@@ -159,8 +159,8 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
       e.preventDefault();
       
       if (e.ctrlKey || e.metaKey) {
-        // Zooming (pinch to zoom)
-        const zoomFactor = e.deltaY < 0 ? 4 : -4;
+        // Zooming (pinch to zoom / mouse Cmd-scroll)
+        const zoomFactor = e.metaKey ? (e.deltaY < 0 ? 15 : -15) : (e.deltaY < 0 ? 6 : -6);
         const nextZoom = Math.max(30, Math.min(150, zoomRef.current + zoomFactor));
         
         const W = viewport.clientWidth;
