@@ -51,6 +51,10 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
 
   const cardWidth = 220;
   const cardHeight = 76;
+  const paddingRight = 600;
+  const paddingBottom = 600;
+  const maxX = Math.max(...people.map((p) => p.x), 1000) + paddingRight;
+  const maxY = Math.max(...people.map((p) => p.y), 1000) + paddingBottom;
 
   // Direct DOM Transformer to bypass React lifecycle
   const updateCanvasDOMTransform = () => {
@@ -307,15 +311,15 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
             // CSS transition runs ONLY when user is NOT dragging (for click snap animations)
             transition: isDraggingState ? 'none' : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
             background: zoomRef.current > 35 ? 'radial-gradient(circle, rgba(30, 63, 32, 0.08) 1px, transparent 1px)' : 'none',
-            backgroundSize: '30px 30px',
+            backgroundSize: '40px 40px',
           }}
         >
           {/* SVG Connections */}
           <svg
             style={{
               position: 'absolute',
-              width: '10000px',
-              height: '10000px',
+              width: `${maxX}px`,
+              height: `${maxY}px`,
               top: 0,
               left: 0,
               pointerEvents: 'none',
@@ -353,14 +357,14 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
                 const endX = p2.x + cardWidth / 2;
                 const endY = p2.y;
 
-                const midY = startY + 30;
+                const midY = (startY + endY) / 2;
 
                 return (
                   <path
                     key={`rel-${rel.id}`}
-                    d={`M ${startX} ${startY} V ${midY} H ${endX} V ${endY}`}
+                    d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
                     stroke="#1E3F20"
-                    strokeWidth={1.5}
+                    strokeWidth={2}
                     fill="none"
                   />
                 );
