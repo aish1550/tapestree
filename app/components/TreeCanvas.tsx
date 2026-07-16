@@ -139,7 +139,7 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
     setRenderPan({ x: panXRef.current, y: panYRef.current, zoom: newZoom });
   };
 
-  const handleZoomIn = () => handleZoom(Math.min(zoomRef.current + 10, 150));
+  const handleZoomIn = () => handleZoom(Math.min(zoomRef.current + 10, 120));
   const handleZoomOut = () => handleZoom(Math.max(zoomRef.current - 10, 30));
   const handleResetZoom = () => {
     if (selectedPersonId) {
@@ -161,7 +161,7 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
       if (e.ctrlKey || e.metaKey) {
         // Zooming (pinch to zoom / mouse Cmd-scroll)
         const zoomFactor = e.metaKey ? (e.deltaY < 0 ? 15 : -15) : (e.deltaY < 0 ? 6 : -6);
-        const nextZoom = Math.max(30, Math.min(150, zoomRef.current + zoomFactor));
+        const nextZoom = Math.max(30, Math.min(120, zoomRef.current + zoomFactor));
         
         const W = viewport.clientWidth;
         const H = viewport.clientHeight;
