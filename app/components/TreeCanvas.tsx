@@ -28,22 +28,48 @@ interface TreeCanvasProps {
 }
 
 export default function TreeCanvas({ people, relationships, onSelectPerson, selectedPersonId }: TreeCanvasProps) {
-  const [zoom, setZoom] = useState(100);
-  const [panX, setPanX] = useState(0);
-  const [panY, setPanY] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
+  // 1. React Render Coordinates State (Throttled for Skeletons, does NOT block real-time dragging)
+  const [renderPan, setRenderPan] = useState({ x: 0, y: 0, zoom: 100 });
+  const [isDraggingState, setIsDraggingState] = useState(false);
+
+  // 2. Uncontrolled DOM Refs for Panning & Zooming (GPU Accelerated, 60fps)
+  const panXRef = useRef(0);
+  const panYRef = useRef(0);
+  const zoomRef = useRef(100);
+  const isDraggingRef = useRef(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   
   // Drag offsets
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
+  
+  // Throttling timers
+  const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const wheelTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const cardWidth = 220;
   const cardHeight = 76;
-  const scale = zoom / 100;
 
-  // 1. Center the view on selected node
+  // Direct DOM Transformer to bypass React lifecycle
+  const updateCanvasDOMTransform = () => {
+    if (canvasRef.current) {
+      const scale = zoomRef.current / 100;
+      canvasRef.current.style.transform = `translate3d(${panXRef.current}px, ${panYRef.current}px, 0) scale(${scale})`;
+    }
+  };
+
+  // Throttle helper to update React render coordinates (updates offscreen skeletons in batches)
+  const updateRenderPanThrottled = (x: number, y: number, z: number) => {
+    if (throttleTimeoutRef.current) return;
+    throttleTimeoutRef.current = setTimeout(() => {
+      setRenderPan({ x, y, zoom: z });
+      throttleTimeoutRef.current = null;
+    }, 120); // Sync skeletons every 120ms (prevents lag, leaves GPU dragging completely free)
+  };
+
+  // 3. Center the view on selected node
   const centerOnNode = (personId: string, smooth = true) => {
     const person = people.find((p) => p.id === personId);
     if (!person || !viewportRef.current) return;
@@ -57,9 +83,16 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
     const targetX = W / 2 - (person.x + cardWidth / 2) * targetScale;
     const targetY = H / 2 - (person.y + cardHeight / 2) * targetScale;
 
-    setZoom(targetZoom);
-    setPanX(targetX);
-    setPanY(targetY);
+    // Update Refs
+    panXRef.current = targetX;
+    panYRef.current = targetY;
+    zoomRef.current = targetZoom;
+
+    // Apply directly to DOM
+    updateCanvasDOMTransform();
+
+    // Immediately update React rendering state to force skeletons calculations
+    setRenderPan({ x: targetX, y: targetY, zoom: targetZoom });
   };
 
   // Trigger centering when selected person changes
@@ -83,27 +116,28 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
     }
   }, [people]);
 
-  // 2. Zoom centered on viewport midpoint
+  // 4. Zoom handlers centered on viewport midpoint
   const handleZoom = (newZoom: number) => {
     if (!viewportRef.current) return;
     const W = viewportRef.current.clientWidth;
     const H = viewportRef.current.clientHeight;
-    const s1 = scale;
+    const s1 = zoomRef.current / 100;
     const s2 = newZoom / 100;
 
-    // Point in canvas space at screen center
-    const canvasCenterX = (W / 2 - panX) / s1;
-    const canvasCenterY = (H / 2 - panY) / s1;
+    const canvasCenterX = (W / 2 - panXRef.current) / s1;
+    const canvasCenterY = (H / 2 - panYRef.current) / s1;
 
-    setZoom(newZoom);
-    setPanX(W / 2 - canvasCenterX * s2);
-    setPanY(H / 2 - canvasCenterY * s2);
+    panXRef.current = W / 2 - canvasCenterX * s2;
+    panYRef.current = H / 2 - canvasCenterY * s2;
+    zoomRef.current = newZoom;
+
+    updateCanvasDOMTransform();
+    setRenderPan({ x: panXRef.current, y: panYRef.current, zoom: newZoom });
   };
 
-  const handleZoomIn = () => handleZoom(Math.min(zoom + 10, 150));
-  const handleZoomOut = () => handleZoom(Math.max(zoom - 10, 30));
+  const handleZoomIn = () => handleZoom(Math.min(zoomRef.current + 10, 150));
+  const handleZoomOut = () => handleZoom(Math.max(zoomRef.current - 10, 30));
   const handleResetZoom = () => {
-    setZoom(100);
     if (selectedPersonId) {
       centerOnNode(selectedPersonId, true);
     } else if (people.length > 0) {
@@ -112,7 +146,7 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
     }
   };
 
-  // 3. Trackpad/Mouse Wheel Panning & Zooming (Figma Style)
+  // 5. Trackpad / Mouse Scroll Panning (Figma Style)
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -122,52 +156,81 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
       
       if (e.ctrlKey || e.metaKey) {
         // Zooming (pinch to zoom)
-        const zoomFactor = e.deltaY < 0 ? 5 : -5;
-        const nextZoom = Math.max(30, Math.min(150, zoom + zoomFactor));
+        const zoomFactor = e.deltaY < 0 ? 4 : -4;
+        const nextZoom = Math.max(30, Math.min(150, zoomRef.current + zoomFactor));
         
-        // Calculate new scale center
         const W = viewport.clientWidth;
         const H = viewport.clientHeight;
-        const s1 = zoom / 100;
+        const s1 = zoomRef.current / 100;
         const s2 = nextZoom / 100;
-        const canvasCenterX = (W / 2 - panX) / s1;
-        const canvasCenterY = (H / 2 - panY) / s1;
+        const canvasCenterX = (W / 2 - panXRef.current) / s1;
+        const canvasCenterY = (H / 2 - panYRef.current) / s1;
 
-        setZoom(nextZoom);
-        setPanX(W / 2 - canvasCenterX * s2);
-        setPanY(H / 2 - canvasCenterY * s2);
+        panXRef.current = W / 2 - canvasCenterX * s2;
+        panYRef.current = H / 2 - canvasCenterY * s2;
+        zoomRef.current = nextZoom;
       } else {
-        // Free panning via scroll wheel / trackpad swipe
-        setPanX((prev) => prev - e.deltaX);
-        setPanY((prev) => prev - e.deltaY);
+        // Panning (swipe/scroll)
+        panXRef.current -= e.deltaX;
+        panYRef.current -= e.deltaY;
       }
+
+      // 60fps direct update
+      updateCanvasDOMTransform();
+
+      // Throttled React state update for skeletons
+      updateRenderPanThrottled(panXRef.current, panYRef.current, zoomRef.current);
+
+      // Final rest sync
+      if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+      wheelTimeoutRef.current = setTimeout(() => {
+        setRenderPan({ x: panXRef.current, y: panYRef.current, zoom: zoomRef.current });
+      }, 150);
     };
 
     viewport.addEventListener('wheel', onWheel, { passive: false });
     return () => {
       viewport.removeEventListener('wheel', onWheel);
     };
-  }, [zoom, panX, panY]);
+  }, []);
 
-  // 4. Mouse Drag-to-Pan Handlers
+  // 6. Mouse Drag-to-Pan Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // Only pan on left click
-    setIsDragging(true);
+    isDraggingRef.current = true;
+    setIsDraggingState(true);
     dragStartRef.current = { x: e.clientX, y: e.clientY };
-    panStartRef.current = { x: panX, y: panY };
+    panStartRef.current = { x: panXRef.current, y: panYRef.current };
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
+    if (!isDraggingRef.current) return;
     const dx = e.clientX - dragStartRef.current.x;
     const dy = e.clientY - dragStartRef.current.y;
-    setPanX(panStartRef.current.x + dx);
-    setPanY(panStartRef.current.y + dy);
+    
+    panXRef.current = panStartRef.current.x + dx;
+    panYRef.current = panStartRef.current.y + dy;
+
+    // 60fps direct update
+    updateCanvasDOMTransform();
+
+    // Throttled React state update
+    updateRenderPanThrottled(panXRef.current, panYRef.current, zoomRef.current);
   };
 
   const handleMouseUpOrLeave = () => {
-    setIsDragging(false);
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      setIsDraggingState(false);
+      // Final release sync
+      setRenderPan({ x: panXRef.current, y: panYRef.current, zoom: zoomRef.current });
+    }
   };
+
+  // Render variables mapped from throttled render state
+  const renderScale = renderPan.zoom / 100;
+  const viewportWidth = viewportRef.current?.clientWidth || 800;
+  const viewportHeight = viewportRef.current?.clientHeight || 600;
 
   return (
     <Box
@@ -202,7 +265,7 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
         </IconButton>
         <Box sx={{ display: 'flex', alignItems: 'center', px: 1 }}>
           <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-            {zoom}%
+            {zoomRef.current}%
           </Typography>
         </Box>
         <IconButton size="small" onClick={handleZoomIn}>
@@ -213,7 +276,7 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
         </IconButton>
       </Box>
 
-      {/* Figma Infinite Viewport Frame */}
+      {/* Viewport Frame */}
       <Box
         ref={viewportRef}
         onMouseDown={handleMouseDown}
@@ -224,26 +287,26 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
           flexGrow: 1,
           width: '100%',
           height: '100%',
-          overflow: 'hidden', // Hide standard browser scrollbars
-          cursor: isDragging ? 'grabbing' : 'grab',
+          overflow: 'hidden',
+          cursor: isDraggingState ? 'grabbing' : 'grab',
           position: 'relative',
           userSelect: 'none',
         }}
       >
-        {/* Figma Infinite Translation Canvas */}
+        {/* Figma Infinite GPU-Accelerated Canvas */}
         <Box
+          ref={canvasRef}
           sx={{
             position: 'absolute',
             top: 0,
             left: 0,
             width: '100%',
             height: '100%',
-            transform: `translate(${panX}px, ${panY}px) scale(${scale})`,
+            willChange: 'transform', // Promotes to hardware-composited GPU layer
             transformOrigin: '0 0',
-            // Smooth transitions only when the user is NOT dragging (e.g. during click-to-center zoom)
-            transition: isDragging ? 'none' : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-            // Figma Grid background texture
-            background: zoom > 35 ? 'radial-gradient(circle, rgba(30, 63, 32, 0.08) 1px, transparent 1px)' : 'none',
+            // CSS transition runs ONLY when user is NOT dragging (for click snap animations)
+            transition: isDraggingState ? 'none' : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+            background: zoomRef.current > 35 ? 'radial-gradient(circle, rgba(30, 63, 32, 0.08) 1px, transparent 1px)' : 'none',
             backgroundSize: '30px 30px',
           }}
         >
@@ -251,7 +314,7 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
           <svg
             style={{
               position: 'absolute',
-              width: '10000px', // Canvas spans deep
+              width: '10000px',
               height: '10000px',
               top: 0,
               left: 0,
@@ -308,100 +371,95 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
           </svg>
 
           {/* Cards Layer */}
-          {(() => {
-            const viewportWidth = viewportRef.current?.clientWidth || 800;
-            const viewportHeight = viewportRef.current?.clientHeight || 600;
+          {people.map((person) => {
+            const isSelected = selectedPersonId === person.id;
+            const fullName = `${person.firstName} ${person.lastName || ''}`;
 
-            return people.map((person) => {
-              const isSelected = selectedPersonId === person.id;
-              const fullName = `${person.firstName} ${person.lastName || ''}`;
+            // Calculate visibility using throttled render coordinates to prevent lag
+            const tx = renderPan.x + person.x * renderScale;
+            const ty = renderPan.y + person.y * renderScale;
+            const isVisible = (
+              tx + cardWidth * renderScale >= -150 &&
+              tx <= viewportWidth + 150 &&
+              ty + cardHeight * renderScale >= -150 &&
+              ty <= viewportHeight + 150
+            );
 
-              // Visibility bounds check (transformed coordinates)
-              const tx = panX + person.x * scale;
-              const ty = panY + person.y * scale;
-              const isVisible = (
-                tx + cardWidth * scale >= -150 &&
-                tx <= viewportWidth + 150 &&
-                ty + cardHeight * scale >= -150 &&
-                ty <= viewportHeight + 150
-              );
-
-              return (
-                <Card
-                  key={person.id}
-                  onClick={(e) => {
-                    e.stopPropagation(); // Avoid triggering background pan clicks
-                    onSelectPerson(person);
-                  }}
+            return (
+              <Card
+                key={person.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectPerson(person);
+                }}
+                sx={{
+                  position: 'absolute',
+                  left: person.x,
+                  top: person.y,
+                  width: cardWidth,
+                  height: cardHeight,
+                  cursor: 'pointer',
+                  border: isSelected ? '2px solid' : '1px solid',
+                  borderColor: isSelected ? 'primary.main' : 'transparent',
+                  transition: 'box-shadow 0.2s, border-color 0.2s',
+                  zIndex: isSelected ? 5 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  '&:hover': {
+                    boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
+                    borderColor: isSelected ? 'primary.main' : 'rgba(30, 63, 32, 0.3)',
+                  },
+                }}
+              >
+                <CardContent
                   sx={{
-                    position: 'absolute',
-                    left: person.x,
-                    top: person.y,
-                    width: cardWidth,
-                    height: cardHeight,
-                    cursor: 'pointer',
-                    border: isSelected ? '2px solid' : '1px solid',
-                    borderColor: isSelected ? 'primary.main' : 'transparent',
-                    transition: 'box-shadow 0.2s, border-color 0.2s',
-                    zIndex: isSelected ? 5 : 1,
+                    p: 1.5,
                     display: 'flex',
                     alignItems: 'center',
-                    '&:hover': {
-                      boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
-                      borderColor: isSelected ? 'primary.main' : 'rgba(30, 63, 32, 0.3)',
-                    },
+                    gap: 1.5,
+                    width: '100%',
+                    '&:last-child': { pb: 1.5 },
                   }}
                 >
-                  <CardContent
-                    sx={{
-                      p: 1.5,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1.5,
-                      width: '100%',
-                      '&:last-child': { pb: 1.5 },
-                    }}
-                  >
-                    {isVisible ? (
-                      <>
-                        <Avatar
-                          src={person.photoUrl || undefined}
-                          alt={fullName}
-                          sx={{ width: 44, height: 44 }}
+                  {isVisible ? (
+                    <>
+                      <Avatar
+                        src={person.photoUrl || undefined}
+                        alt={fullName}
+                        sx={{ width: 44, height: 44 }}
+                      >
+                        {person.firstName[0]}
+                      </Avatar>
+                      <Box sx={{ overflow: 'hidden', flexGrow: 1 }}>
+                        <Typography
+                          variant="body2"
+                          noWrap
+                          sx={{ fontWeight: 'bold' }}
                         >
-                          {person.firstName[0]}
-                        </Avatar>
-                        <Box sx={{ overflow: 'hidden', flexGrow: 1 }}>
-                          <Typography
-                            variant="body2"
-                            noWrap
-                            sx={{ fontWeight: 'bold' }}
-                          >
-                            {fullName}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ display: 'block' }}
-                          >
-                            {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
-                          </Typography>
-                        </Box>
-                      </>
-                    ) : (
-                      <>
-                        <Skeleton variant="circular" width={44} height={44} animation="wave" />
-                        <Box sx={{ flexGrow: 1 }}>
-                          <Skeleton variant="text" width="80%" height={20} animation="wave" />
-                          <Skeleton variant="text" width="50%" height={12} animation="wave" />
-                        </Box>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            });
-          })()}
+                          {fullName}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: 'block' }}
+                        >
+                          {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
+                        </Typography>
+                      </Box>
+                    </>
+                  ) : (
+                    <>
+                      <Skeleton variant="circular" width={44} height={44} animation="wave" />
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Skeleton variant="text" width="80%" height={20} animation="wave" />
+                        <Skeleton variant="text" width="50%" height={12} animation="wave" />
+                      </Box>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </Box>
       </Box>
     </Box>
