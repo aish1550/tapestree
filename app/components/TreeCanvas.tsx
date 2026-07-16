@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
-import { Box, Card, CardContent, Typography, Avatar, IconButton } from '@mui/material';
+import { Box, Card, CardContent, Typography, Avatar, IconButton, Skeleton } from '@mui/material';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import CenterFocusWeakIcon from '@mui/icons-material/CenterFocusWeak';
@@ -308,73 +308,100 @@ export default function TreeCanvas({ people, relationships, onSelectPerson, sele
           </svg>
 
           {/* Cards Layer */}
-          {people.map((person) => {
-            const isSelected = selectedPersonId === person.id;
-            const fullName = `${person.firstName} ${person.lastName || ''}`;
+          {(() => {
+            const viewportWidth = viewportRef.current?.clientWidth || 800;
+            const viewportHeight = viewportRef.current?.clientHeight || 600;
 
-            return (
-              <Card
-                key={person.id}
-                onClick={(e) => {
-                  e.stopPropagation(); // Avoid triggering background pan clicks
-                  onSelectPerson(person);
-                }}
-                sx={{
-                  position: 'absolute',
-                  left: person.x,
-                  top: person.y,
-                  width: cardWidth,
-                  height: cardHeight,
-                  cursor: 'pointer',
-                  border: isSelected ? '2px solid' : '1px solid',
-                  borderColor: isSelected ? 'primary.main' : 'transparent',
-                  transition: 'box-shadow 0.2s, border-color 0.2s',
-                  zIndex: isSelected ? 5 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  '&:hover': {
-                    boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
-                    borderColor: isSelected ? 'primary.main' : 'rgba(30, 63, 32, 0.3)',
-                  },
-                }}
-              >
-                <CardContent
+            return people.map((person) => {
+              const isSelected = selectedPersonId === person.id;
+              const fullName = `${person.firstName} ${person.lastName || ''}`;
+
+              // Visibility bounds check (transformed coordinates)
+              const tx = panX + person.x * scale;
+              const ty = panY + person.y * scale;
+              const isVisible = (
+                tx + cardWidth * scale >= -150 &&
+                tx <= viewportWidth + 150 &&
+                ty + cardHeight * scale >= -150 &&
+                ty <= viewportHeight + 150
+              );
+
+              return (
+                <Card
+                  key={person.id}
+                  onClick={(e) => {
+                    e.stopPropagation(); // Avoid triggering background pan clicks
+                    onSelectPerson(person);
+                  }}
                   sx={{
-                    p: 1.5,
+                    position: 'absolute',
+                    left: person.x,
+                    top: person.y,
+                    width: cardWidth,
+                    height: cardHeight,
+                    cursor: 'pointer',
+                    border: isSelected ? '2px solid' : '1px solid',
+                    borderColor: isSelected ? 'primary.main' : 'transparent',
+                    transition: 'box-shadow 0.2s, border-color 0.2s',
+                    zIndex: isSelected ? 5 : 1,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 1.5,
-                    width: '100%',
-                    '&:last-child': { pb: 1.5 },
+                    '&:hover': {
+                      boxShadow: '0 8px 30px rgba(0, 0, 0, 0.08)',
+                      borderColor: isSelected ? 'primary.main' : 'rgba(30, 63, 32, 0.3)',
+                    },
                   }}
                 >
-                  <Avatar
-                    src={person.photoUrl || undefined}
-                    alt={fullName}
-                    sx={{ width: 44, height: 44 }}
+                  <CardContent
+                    sx={{
+                      p: 1.5,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      width: '100%',
+                      '&:last-child': { pb: 1.5 },
+                    }}
                   >
-                    {person.firstName[0]}
-                  </Avatar>
-                  <Box sx={{ overflow: 'hidden', flexGrow: 1 }}>
-                    <Typography
-                      variant="body2"
-                      noWrap
-                      sx={{ fontWeight: 'bold' }}
-                    >
-                      {fullName}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ display: 'block' }}
-                    >
-                      {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
-                    </Typography>
-                  </Box>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    {isVisible ? (
+                      <>
+                        <Avatar
+                          src={person.photoUrl || undefined}
+                          alt={fullName}
+                          sx={{ width: 44, height: 44 }}
+                        >
+                          {person.firstName[0]}
+                        </Avatar>
+                        <Box sx={{ overflow: 'hidden', flexGrow: 1 }}>
+                          <Typography
+                            variant="body2"
+                            noWrap
+                            sx={{ fontWeight: 'bold' }}
+                          >
+                            {fullName}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: 'block' }}
+                          >
+                            {person.birthDate.split(',')[1]?.trim() || person.birthDate} – {person.deathDate ? person.deathDate.split(',')[1]?.trim() : 'Present'}
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : (
+                      <>
+                        <Skeleton variant="circular" width={44} height={44} animation="wave" />
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Skeleton variant="text" width="80%" height={20} animation="wave" />
+                          <Skeleton variant="text" width="50%" height={12} animation="wave" />
+                        </Box>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            });
+          })()}
         </Box>
       </Box>
     </Box>
