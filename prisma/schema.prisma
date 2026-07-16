@@ -1,0 +1,142 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id              String             @id @default(uuid())
+  email           String             @unique
+  fullName        String
+  tier            String             @default("free") // "free", "premium"
+  createdAt       DateTime           @default(now())
+  trees           Tree[]             @relation("TreeOwner")
+  collaborations  TreeCollaborator[]
+  chatMemberships ChatMember[]
+  sentMessages    Message[]
+  promptResponses PromptResponse[]
+}
+
+model Tree {
+  id            String             @id @default(uuid())
+  name          String
+  createdAt     DateTime           @default(now())
+  ownerId       String
+  owner         Account            @relation("TreeOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  collaborators TreeCollaborator[]
+  people        Person[]
+  relationships Relationship[]
+  chats         Chat[]
+  events        Event[]
+}
+
+model TreeCollaborator {
+  treeId    String
+  tree      Tree     @relation(fields: [treeId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  role      String   @default("viewer") // "editor", "viewer", "admin"
+  
+  @@id([treeId, accountId])
+}
+
+model Person {
+  id                 String           @id @default(uuid())
+  treeId             String
+  tree               Tree             @relation(fields: [treeId], references: [id], onDelete: Cascade)
+  firstName          String
+  lastName           String?
+  birthDate          DateTime?
+  birthPlace         String?
+  deathDate          DateTime?
+  deathPlace         String?
+  isRemembranceNode  Boolean          @default(false)
+  photoUrl           String?
+  bio                String?
+  metadata           String           @default("{}") // Store custom attributes as serialized JSON string
+  createdAt          DateTime         @default(now())
+  relationships1     Relationship[]   @relation("Person1")
+  relationships2     Relationship[]   @relation("Person2")
+  promptResponses    PromptResponse[]
+}
+
+model Relationship {
+  id         String   @id @default(uuid())
+  treeId     String
+  tree       Tree     @relation(fields: [treeId], references: [id], onDelete: Cascade)
+  personId1  String
+  person1    Person   @relation("Person1", fields: [personId1], references: [id], onDelete: Cascade)
+  personId2  String
+  person2    Person   @relation("Person2", fields: [personId2], references: [id], onDelete: Cascade)
+  type       String   // "parent-child", "spouse", "adoption"
+  metadata   String   @default("{}") // e.g. marriage date/location
+  createdAt  DateTime @default(now())
+}
+
+model Chat {
+  id        String       @id @default(uuid())
+  treeId    String
+  tree      Tree         @relation(fields: [treeId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime     @default(now())
+  members   ChatMember[]
+  messages  Message[]
+}
+
+model ChatMember {
+  chatId    String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+
+  @@id([chatId, accountId])
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  chatId    String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  senderId  String?
+  sender    Account? @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  content   String?
+  mediaUrl  String?
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id          String   @id @default(uuid())
+  treeId      String
+  tree        Tree     @relation(fields: [treeId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  eventDate   DateTime
+  type        String   // "birthday", "anniversary", "remembrance", "reunion"
+  createdAt   DateTime @default(now())
+}
+
+model Prompt {
+  id        String           @id @default(uuid())
+  question  String
+  createdAt DateTime         @default(now())
+  responses PromptResponse[]
+}
+
+model PromptResponse {
+  id        String   @id @default(uuid())
+  promptId  String
+  prompt    Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    Account? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  content   String
+  mediaUrl  String?
+  createdAt DateTime @default(now())
+}
