@@ -8,6 +8,15 @@ import '@xyflow/react/dist/style.css';
 
 export const Route = createRootRoute({
   component: RootComponent,
+  notFoundComponent: () => {
+    return (
+      <div style={{ padding: '48px', textAlign: 'center', fontFamily: 'sans-serif' }}>
+        <h2>Page Not Found</h2>
+        <p>We couldn't find the page you were looking for.</p>
+        <a href="/" style={{ color: '#1E3F20', fontWeight: 'bold' }}>Go to Home</a>
+      </div>
+    );
+  },
 });
 
 function RootComponent() {
