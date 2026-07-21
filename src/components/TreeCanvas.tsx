@@ -137,7 +137,7 @@ function TreeCanvasInner({ people, relationships, onSelectPerson, selectedPerson
       ref={viewportRef}
       sx={{
         flexGrow: 1,
-        height: '100%',
+        height: 'calc(100vh - 64px)',
         width: '100%',
         position: 'relative',
         bgcolor: 'background.default',

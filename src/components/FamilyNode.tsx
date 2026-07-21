@@ -40,7 +40,7 @@ export default function FamilyNode({ data, selected }: FamilyNodeProps) {
 
       {/* Left Handle: Spousal connection */}
       <Handle
-        type="source"
+        type="target"
         position={Position.Left}
         id="spouse-left"
         style={{ background: '#1E3F20', width: 6, height: 6, top: '50%', border: '1px solid #FAF6EE' }}
